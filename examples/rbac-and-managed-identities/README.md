@@ -92,6 +92,14 @@ resource "tls_private_key" "example_ssh" {
   rsa_bits  = 4096
 }
 
+resource "azurerm_user_assigned_identity" "example_identity" {
+  location            = azurerm_resource_group.this.location
+  name                = module.naming.user_assigned_identity.name_unique
+  resource_group_name = azurerm_resource_group.this.name
+}
+
+data "azurerm_client_config" "current" {}
+
 # This is the module call
 module "terraform-azurerm-avm-res-compute-virtualmachinescaleset" {
   source = "../../"
@@ -110,8 +118,6 @@ module "terraform-azurerm-avm-res-compute-virtualmachinescaleset" {
       admin_ssh_key = {
         username   = "azureuser"
         public_key = tls_private_key.example_ssh.public_key_openssh
-        # Replace if you have a public key file
-        #public_key = file("c:/tmp/key.txt")
       }
     }
   }
@@ -121,14 +127,20 @@ module "terraform-azurerm-avm-res-compute-virtualmachinescaleset" {
     sku       = "22_04-LTS-gen2"
     version   = "latest"
   }
+  managed_identities = {
+    system_assigned            = true
+    user_assigned_resource_ids = [azurerm_user_assigned_identity.example_identity.id]
+  }
+  role_assignments = {
+    role_assignment = {
+      principal_id               = data.azurerm_client_config.current.object_id
+      role_definition_id_or_name = "Reader"
+      description                = "Assign the Reader role to the deployment user on this virtual machine scale set resource scope."
+    }
+  } 
   tags = {
     source = "AVM Sample Default Deployment"
   }
-  # Uncomment the code below to implement a VMSS Lock
-  #lock = {
-  #  name = "VMSSNoDelete"
-  #  kind = "CanNotDelete"
-  #}
   depends_on = [azurerm_subnet_nat_gateway_association.this]
 }
 
@@ -172,8 +184,10 @@ The following resources are used by this module:
 - [azurerm_resource_group.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/resource_group) (resource)
 - [azurerm_subnet.subnet](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) (resource)
 - [azurerm_subnet_nat_gateway_association.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_nat_gateway_association) (resource)
+- [azurerm_user_assigned_identity.example_identity](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/user_assigned_identity) (resource)
 - [azurerm_virtual_network.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/virtual_network) (resource)
 - [tls_private_key.example_ssh](https://registry.terraform.io/providers/hashicorp/tls/latest/docs/resources/private_key) (resource)
+- [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) (data source)
 
 <!-- markdownlint-disable MD013 -->
 ## Required Inputs

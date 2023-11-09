@@ -54,6 +54,29 @@ resource "azurerm_orchestrated_virtual_machine_scale_set" "virtual_machine_scale
       instances
     ]
   }
+
+  identity {
+    # VMSS Flex only supports User Assigned Managed Identities
+    type = "UserAssigned"  
+    identity_ids = var.managed_identities.user_assigned_resource_ids
+  }
+
+  dynamic "secret" {
+    for_each = toset(var.secrets)
+
+    content {
+      key_vault_id = secret.value.key_vault_id
+
+      dynamic "certificate" {
+        for_each = secret.value.certificate
+
+        content {
+          url   = certificate.value.url
+          store = certificate.value.store
+        }
+      }
+    }
+  }
 }
 
 resource "azurerm_management_lock" "this" {
@@ -62,3 +85,50 @@ resource "azurerm_management_lock" "this" {
   scope      = azurerm_orchestrated_virtual_machine_scale_set.virtual_machine_scale_set.id
   lock_level = var.lock.kind
 }
+
+resource "azurerm_monitor_diagnostic_setting" "this" {
+  for_each                       = var.diagnostic_settings
+  name                           = each.value.name != null ? each.value.name : "diag-${var.name}"
+  target_resource_id             = azurerm_orchestrated_virtual_machine_scale_set.virtual_machine_scale_set.id
+  storage_account_id             = each.value.storage_account_resource_id
+  eventhub_authorization_rule_id = each.value.event_hub_authorization_rule_resource_id
+  eventhub_name                  = each.value.event_hub_name
+  partner_solution_id            = each.value.marketplace_partner_resource_id
+  log_analytics_workspace_id     = each.value.workspace_resource_id
+  log_analytics_destination_type = each.value.log_analytics_destination_type
+
+  dynamic "enabled_log" {
+    for_each = each.value.log_categories
+    content {
+      category = enabled_log.value
+    }
+  }
+
+  dynamic "enabled_log" {
+    for_each = each.value.log_groups
+    content {
+      category_group = enabled_log.value
+    }
+  }
+
+  dynamic "metric" {
+    for_each = each.value.metric_categories
+    content {
+      category = metric.value
+    }
+  }
+}
+
+
+resource "azurerm_role_assignment" "this" {
+  for_each                               = var.role_assignments
+  scope                                  = azurerm_orchestrated_virtual_machine_scale_set.virtual_machine_scale_set.id
+  role_definition_id                     = strcontains(lower(each.value.role_definition_id_or_name), lower(local.role_definition_resource_substring)) ? each.value.role_definition_id_or_name : null
+  role_definition_name                   = strcontains(lower(each.value.role_definition_id_or_name), lower(local.role_definition_resource_substring)) ? null : each.value.role_definition_id_or_name
+  principal_id                           = each.value.principal_id
+  condition                              = each.value.condition
+  condition_version                      = each.value.condition_version
+  skip_service_principal_aad_check       = each.value.skip_service_principal_aad_check
+  delegated_managed_identity_resource_id = each.value.delegated_managed_identity_resource_id
+}
+

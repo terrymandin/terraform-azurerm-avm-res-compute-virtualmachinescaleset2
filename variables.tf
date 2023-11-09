@@ -92,7 +92,6 @@ variable "os_profile" {
       disable_password_authentication = optional(bool, false)
       admin_username                  = optional(string, null)
       admin_password                  = optional(string, null) # When an admin_ssh_key is specified admin_password must be set to null
-      disable_password_authentication = optional(bool, true)
       user_data_base64                = optional(string, null)
       admin_ssh_key = optional(object({   # This is not optional in the underlying module
         username   = optional(string, null)
@@ -140,3 +139,74 @@ variable "load_balancer_backend_address_pool_ids" {
   default     = []
 }
 
+variable "role_assignments" {
+    type = map(object({
+      role_definition_id_or_name             = string
+      principal_id                           = string
+      description                            = optional(string, null)
+      skip_service_principal_aad_check       = optional(bool, false)
+      condition                              = optional(string, null)
+      condition_version                      = optional(string, null)
+      delegated_managed_identity_resource_id = optional(string, null)
+    }))
+    default     = {}
+    description = <<DESCRIPTION
+  A map of role assignments to create on the Virtual Machine Scale Set. The map key is deliberately arbitrary to avoid issues where map keys maybe unknown at plan time.
+  
+  - `role_definition_id_or_name` - The ID or name of the role definition to assign to the principal.
+  - `principal_id` - The ID of the principal to assign the role to.
+  - `description` - The description of the role assignment.
+  - `skip_service_principal_aad_check` - If set to true, skips the Azure Active Directory check for the service principal in the tenant. Defaults to false.
+  - `condition` - The condition which will be used to scope the role assignment.
+  - `condition_version` - The version of the condition syntax. Leave as `null` if you are not using a condition, if you are then valid values are '2.0'.
+  
+  > Note: only set `skip_service_principal_aad_check` to true if you are assigning a role to a service principal.
+  DESCRIPTION
+}
+
+
+variable "managed_identities" {
+  type = object({
+    system_assigned            = optional(bool, false) # System Assigned Managed Identity is not supported on VMSS
+    user_assigned_resource_ids = optional(set(string), [])
+  })
+  default = {}
+  description = "The managed identities to assign to the Virtual Machine Scale Set."
+}
+
+variable "secrets" {
+  type = list(object({
+    key_vault_id = string
+    certificate = set(object({
+      url   = string
+      store = optional(string)
+    }))
+  }))
+  default     = []
+  nullable    = false
+  description = <<SECRETS
+  list(object({
+    key_vault_id = "(Required) The ID of the Key Vault from which all Secrets should be sourced."
+    certificate  = set(object({
+      url   = "(Required) The Secret URL of a Key Vault Certificate. This can be sourced from the `secret_id` field within the `azurerm_key_vault_certificate` Resource."
+      store = "(Optional) The certificate store on the Virtual Machine where the certificate should be added. Required when use with Windows Virtual Machine."
+    }))
+  }))
+
+  Example Inputs:
+
+  ```terraform
+  secrets = [
+    {
+      key_vault_id = azurerm_key_vault.example.id
+      certificate = [
+        {
+          url = azurerm_key_vault_certificate.example.secret_id
+          store = "My"
+        }
+      ]
+    }
+  ]
+  ```
+  SECRETS
+}
