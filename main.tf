@@ -1,4 +1,9 @@
+output "isnull" {
+  value = (var.os_profile.windows_configuration == null) ? "IsNull" : "IsNotNull"
+}
 resource "azurerm_orchestrated_virtual_machine_scale_set" "virtual_machine_scale_set" {
+ # count = var.os_profile.linux_configuration != null && var.os_profile.windows_configuration == null ? 1 : 0  
+
   name                        = var.name
   tags                        = var.tags 
   resource_group_name         = var.resource_group_name
@@ -10,14 +15,45 @@ resource "azurerm_orchestrated_virtual_machine_scale_set" "virtual_machine_scale
   zones                       = var.zones # ["1", "2", "3"] # Zones required to lookup zone in the startup script
 
   os_profile {
-    linux_configuration {
-      disable_password_authentication = true
-      admin_username                  = var.os_profile.linux_configuration.admin_username
-      admin_ssh_key {
-        username   = var.os_profile.linux_configuration.admin_ssh_key.username
-        public_key = var.os_profile.linux_configuration.admin_ssh_key.public_key
+    dynamic "linux_configuration" {
+      for_each = var.os_profile.linux_configuration == null ? [] : ["linux_configuration"]
+      content {      
+        disable_password_authentication = var.os_profile.linux_configuration.disable_password_authentication
+        admin_username                  = var.os_profile.linux_configuration.admin_username
+        admin_password                  = var.os_profile.linux_configuration.admin_password
+        #user_data_base64                = var.os_profile.linux_configuration.user_data_base64
+        admin_ssh_key {
+          username                      = var.os_profile.linux_configuration.admin_ssh_key.username
+          public_key                    = var.os_profile.linux_configuration.admin_ssh_key.public_key
+        }
+        secret {
+          key_vault_id                  = var.os_profile.linux_configuration.secret.key_vault_id
+          certificate { 
+            url                         = var.os_profile.linux_configuration.secret.certificate.url
+          }          
+        }
       }
     }
+    dynamic "windows_configuration" {
+      for_each = var.os_profile.windows_configuration == null ? [] : ["windows_configuration"]
+      content {
+        admin_username                  = var.os_profile.windows_configuration.admin_username
+        admin_password                  = var.os_profile.windows_configuration.admin_password
+        computer_name_prefix            = var.os_profile.windows_configuration.computer_name_prefix
+        enable_automatic_updates        = var.os_profile.windows_configuration.enable_automatic_updates
+        hotpatching_enabled             = var.os_profile.windows_configuration.hotpatching_enabled
+        patch_assessment_mode           = var.os_profile.windows_configuration.patch_assessment_mode
+        patch_mode                      = var.os_profile.windows_configuration.patch_mode
+        provision_vm_agent              = var.os_profile.windows_configuration.provision_vm_agent
+        secret {
+          key_vault_id = var.os_profile.windows_configuration.secret.key_vault_id
+          certificate { 
+            url                         = var.os_profile.windows_configuration.secret.certificate.url
+            store                       = var.os_profile.windows_configuration.secret.certificate.store
+          }
+        }
+      }
+    } 
   }
 
   source_image_reference {
@@ -55,26 +91,12 @@ resource "azurerm_orchestrated_virtual_machine_scale_set" "virtual_machine_scale
     ]
   }
 
-  identity {
-    # VMSS Flex only supports User Assigned Managed Identities
-    type = "UserAssigned"  
-    identity_ids = var.managed_identities.user_assigned_resource_ids
-  }
-
-  dynamic "secret" {
-    for_each = toset(var.secrets)
-
+  dynamic "identity" {
+    for_each = var.managed_identities == null ? [] : ["identity"]
     content {
-      key_vault_id = secret.value.key_vault_id
-
-      dynamic "certificate" {
-        for_each = secret.value.certificate
-
-        content {
-          url   = certificate.value.url
-          store = certificate.value.store
-        }
-      }
+      # VMSS Flex only supports User Assigned Managed Identities
+      type = "UserAssigned"  
+      identity_ids = var.managed_identities.user_assigned_resource_ids
     }
   }
 }
@@ -85,40 +107,6 @@ resource "azurerm_management_lock" "this" {
   scope      = azurerm_orchestrated_virtual_machine_scale_set.virtual_machine_scale_set.id
   lock_level = var.lock.kind
 }
-
-resource "azurerm_monitor_diagnostic_setting" "this" {
-  for_each                       = var.diagnostic_settings
-  name                           = each.value.name != null ? each.value.name : "diag-${var.name}"
-  target_resource_id             = azurerm_orchestrated_virtual_machine_scale_set.virtual_machine_scale_set.id
-  storage_account_id             = each.value.storage_account_resource_id
-  eventhub_authorization_rule_id = each.value.event_hub_authorization_rule_resource_id
-  eventhub_name                  = each.value.event_hub_name
-  partner_solution_id            = each.value.marketplace_partner_resource_id
-  log_analytics_workspace_id     = each.value.workspace_resource_id
-  log_analytics_destination_type = each.value.log_analytics_destination_type
-
-  dynamic "enabled_log" {
-    for_each = each.value.log_categories
-    content {
-      category = enabled_log.value
-    }
-  }
-
-  dynamic "enabled_log" {
-    for_each = each.value.log_groups
-    content {
-      category_group = enabled_log.value
-    }
-  }
-
-  dynamic "metric" {
-    for_each = each.value.metric_categories
-    content {
-      category = metric.value
-    }
-  }
-}
-
 
 resource "azurerm_role_assignment" "this" {
   for_each                               = var.role_assignments

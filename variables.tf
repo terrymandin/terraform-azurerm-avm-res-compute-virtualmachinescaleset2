@@ -93,11 +93,17 @@ variable "os_profile" {
       admin_username                  = optional(string, null)
       admin_password                  = optional(string, null) # When an admin_ssh_key is specified admin_password must be set to null
       user_data_base64                = optional(string, null)
-      admin_ssh_key = optional(object({   # This is not optional in the underlying module
-        username   = optional(string, null)
-        public_key = optional(string, null)
+      admin_ssh_key                   = optional(object({   # This is not optional in the underlying module
+        username                      = optional(string, null)
+        public_key                    = optional(string, null)
       }), {}) # When an admin_password is specified disable_password_authentication must be set to false
-    }), {})
+      secret = optional(object({
+        key_vault_id                  = optional(string, null)
+        certificate                   = optional(object({
+          url                         = optional(string, null)
+        }), {})
+      }), {})
+    }), null)
     windows_configuration = optional(object({
       admin_username           = optional(string, null) # underlying module will default to name if null
       admin_password           = optional(string, null) # underlying module will default to name if null
@@ -107,7 +113,14 @@ variable "os_profile" {
       patch_assessment_mode    = optional(string, "ImageDefault")  # How to set options "AutomaticByPlatform" or "ImageDefault"
       patch_mode               = optional(string, "AutomaticByOS") # How to set options Manual, AutomaticByOS and AutomaticByPlatform
       provision_vm_agent       = optional(bool, true)
-    }), {})
+      secret = optional(object({
+        key_vault_id           = optional(string, null)
+        certificate            = optional(object({
+          url                  = optional(string, null)
+          store                = optional(string, null)
+        }), {})
+      }), {})
+    }), null)
   })
   description = "The OS profile configuration for the Virtual Machine Scale Set."
   default     = {}
@@ -170,43 +183,7 @@ variable "managed_identities" {
     system_assigned            = optional(bool, false) # System Assigned Managed Identity is not supported on VMSS
     user_assigned_resource_ids = optional(set(string), [])
   })
-  default = {}
+  default = null
   description = "The managed identities to assign to the Virtual Machine Scale Set."
 }
 
-variable "secrets" {
-  type = list(object({
-    key_vault_id = string
-    certificate = set(object({
-      url   = string
-      store = optional(string)
-    }))
-  }))
-  default     = []
-  nullable    = false
-  description = <<SECRETS
-  list(object({
-    key_vault_id = "(Required) The ID of the Key Vault from which all Secrets should be sourced."
-    certificate  = set(object({
-      url   = "(Required) The Secret URL of a Key Vault Certificate. This can be sourced from the `secret_id` field within the `azurerm_key_vault_certificate` Resource."
-      store = "(Optional) The certificate store on the Virtual Machine where the certificate should be added. Required when use with Windows Virtual Machine."
-    }))
-  }))
-
-  Example Inputs:
-
-  ```terraform
-  secrets = [
-    {
-      key_vault_id = azurerm_key_vault.example.id
-      certificate = [
-        {
-          url = azurerm_key_vault_certificate.example.secret_id
-          store = "My"
-        }
-      ]
-    }
-  ]
-  ```
-  SECRETS
-}
